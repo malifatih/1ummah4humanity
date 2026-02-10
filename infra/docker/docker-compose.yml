@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: 1ummah-postgres
+    environment:
+      POSTGRES_USER: ummah
+      POSTGRES_PASSWORD: ummah_dev
+      POSTGRES_DB: ummah_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ummah -d ummah_dev']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - 1ummah-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: 1ummah-redis
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - 1ummah-network
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: 1ummah-api
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://ummah:ummah_dev@postgres:5432/ummah_dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-change-in-production-32chars
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production-32
+      S3_BUCKET: 1ummah-media-dev
+      FRONTEND_URL: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - 1ummah-network
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: 1ummah-web
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - 1ummah-network
+
+volumes:
+  pgdata:
+
+networks:
+  1ummah-network:
+    driver: bridge

@@ -1,0 +1,717 @@
+// ============================================================================
+// 1Ummah Social Platform - Prisma Schema
+// ============================================================================
+// A comprehensive social media platform with posts, messaging, groups,
+// stories, blockchain wallet integration, events, and discovery features.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum PostVisibility {
+  PUBLIC
+  FOLLOWERS
+  MENTIONED
+  PRIVATE
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+  AUDIO
+}
+
+enum FollowStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  REPOST
+  FOLLOW
+  FOLLOW_REQUEST
+  MENTION
+  GROUP_INVITE
+  GROUP_POST
+  REWARD
+  SYSTEM
+}
+
+enum GroupPrivacy {
+  PUBLIC
+  PRIVATE
+  SECRET
+}
+
+enum GroupMemberRole {
+  MEMBER
+  MODERATOR
+  ADMIN
+  OWNER
+}
+
+enum TransactionType {
+  REWARD_POST
+  REWARD_ENGAGEMENT
+  STAKE
+  UNSTAKE
+  TRANSFER_IN
+  TRANSFER_OUT
+  ICO_PURCHASE
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum StakeStatus {
+  ACTIVE
+  COMPLETED
+  WITHDRAWN
+}
+
+// ============================================================================
+// 1. Users Domain
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique @db.VarChar(30)
+  displayName   String    @db.VarChar(50)
+  email         String?   @unique
+  passwordHash  String?
+  bio           String?   @db.VarChar(280)
+  avatarUrl     String?
+  bannerUrl     String?
+  location      String?   @db.VarChar(100)
+  website       String?   @db.VarChar(200)
+  walletAddress String?   @unique
+  isVerified    Boolean   @default(false)
+  isPrivate     Boolean   @default(false)
+  role          UserRole  @default(USER)
+  lastActiveAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  sessions                Session[]
+  posts                   Post[]
+  media                   Media[]
+  likes                   Like[]
+  comments                Comment[]
+  reposts                 Repost[]
+  bookmarks               Bookmark[]
+  followersReceived       Follow[]                  @relation("FollowingUser")
+  followsInitiated        Follow[]                  @relation("FollowerUser")
+  blocksInitiated         Block[]                   @relation("BlockerUser")
+  blocksReceived          Block[]                   @relation("BlockedUser")
+  mutesInitiated          Mute[]                    @relation("MuterUser")
+  mutesReceived           Mute[]                    @relation("MutedUser")
+  mentions                Mention[]
+  notificationsReceived   Notification[]            @relation("NotificationRecipient")
+  notificationsActed      Notification[]            @relation("NotificationActor")
+  conversationParticipants ConversationParticipant[]
+  messagesSent            Message[]
+  groups                  GroupMember[]
+  stories                 Story[]
+  storyViews              StoryView[]
+  wallet                  Wallet?
+  eventsCreated           Event[]
+  eventAttendances        EventAttendee[]
+
+  @@index([username])
+  @@index([email])
+  @@index([walletAddress])
+  @@index([role])
+  @@index([isVerified])
+  @@index([lastActiveAt])
+  @@index([createdAt])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// 2. Posts Domain
+// ============================================================================
+
+model Post {
+  id            String         @id @default(cuid())
+  content       String?        @db.VarChar(5000)
+  authorId      String
+  parentId      String?
+  groupId       String?
+  visibility    PostVisibility @default(PUBLIC)
+  isPinned      Boolean        @default(false)
+  likesCount    Int            @default(0)
+  commentsCount Int            @default(0)
+  repostsCount  Int            @default(0)
+  viewsCount    Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  author        User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent        Post?         @relation("PostThread", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Post[]        @relation("PostThread")
+  group         Group?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  postMedia     PostMedia[]
+  likes         Like[]
+  comments      Comment[]
+  reposts       Repost[]
+  bookmarks     Bookmark[]
+  postHashtags  PostHashtag[]
+  mentions      Mention[]
+  notifications Notification[]
+
+  @@index([authorId])
+  @@index([parentId])
+  @@index([groupId])
+  @@index([visibility])
+  @@index([isPinned])
+  @@index([createdAt])
+  @@index([authorId, createdAt])
+  @@index([groupId, createdAt])
+  @@index([visibility, createdAt])
+  @@index([likesCount])
+  @@index([viewsCount])
+}
+
+model PostMedia {
+  id      String @id @default(cuid())
+  postId  String
+  mediaId String
+  order   Int    @default(0)
+
+  // Relations
+  post  Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, mediaId])
+  @@index([postId])
+  @@index([mediaId])
+}
+
+model Media {
+  id           String    @id @default(cuid())
+  uploaderId   String
+  url          String
+  thumbnailUrl String?
+  type         MediaType
+  mimeType     String?
+  sizeBytes    Int?
+  width        Int?
+  height       Int?
+  duration     Float?
+  altText      String?   @db.VarChar(500)
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  uploader  User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  postMedia PostMedia[]
+  stories   Story[]
+
+  @@index([uploaderId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// 3. Interactions Domain
+// ============================================================================
+
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+  @@index([createdAt])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.VarChar(2000)
+  userId    String
+  postId    String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post     Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+  children Comment[] @relation("CommentThread")
+
+  @@index([userId])
+  @@index([postId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@index([postId, createdAt])
+}
+
+model Repost {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  comment   String?  @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+  @@index([createdAt])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+  @@index([userId, createdAt])
+}
+
+// ============================================================================
+// 4. Social Graph Domain
+// ============================================================================
+
+model Follow {
+  id          String       @id @default(cuid())
+  followerId  String
+  followingId String
+  status      FollowStatus @default(ACCEPTED)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  follower  User @relation("FollowerUser", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("FollowingUser", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@index([status])
+  @@index([followerId, status])
+  @@index([followingId, status])
+  @@index([createdAt])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  blocker User @relation("BlockerUser", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockedUser", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+}
+
+model Mute {
+  id       String   @id @default(cuid())
+  muterId  String
+  mutedId  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  muter User @relation("MuterUser", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("MutedUser", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@index([muterId])
+  @@index([mutedId])
+}
+
+// ============================================================================
+// 5. Discovery Domain
+// ============================================================================
+
+model Hashtag {
+  id        String   @id @default(cuid())
+  tag       String   @unique @db.VarChar(100)
+  postCount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  // Relations
+  postHashtags PostHashtag[]
+
+  @@index([tag])
+  @@index([postCount])
+}
+
+model PostHashtag {
+  id        String   @id @default(cuid())
+  postId    String
+  hashtagId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  post    Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  hashtag Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, hashtagId])
+  @@index([postId])
+  @@index([hashtagId])
+}
+
+model Mention {
+  id              String   @id @default(cuid())
+  postId          String
+  mentionedUserId String
+  createdAt       DateTime @default(now())
+
+  // Relations
+  post          Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mentionedUser User @relation(fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([mentionedUserId])
+}
+
+// ============================================================================
+// 6. Notifications Domain
+// ============================================================================
+
+model Notification {
+  id          String           @id @default(cuid())
+  recipientId String
+  actorId     String?
+  type        NotificationType
+  postId      String?
+  groupId     String?
+  message     String?
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  // Relations
+  recipient User   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?  @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  post      Post?  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  group     Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId])
+  @@index([recipientId, isRead])
+  @@index([recipientId, createdAt])
+  @@index([actorId])
+  @@index([type])
+  @@index([postId])
+  @@index([groupId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// 7. Messaging Domain
+// ============================================================================
+
+model Conversation {
+  id        String   @id @default(cuid())
+  isGroup   Boolean  @default(false)
+  name      String?  @db.VarChar(100)
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([isGroup])
+  @@index([updatedAt])
+}
+
+model ConversationParticipant {
+  id             String    @id @default(cuid())
+  conversationId String
+  userId         String
+  role           String    @default("member")
+  lastReadAt     DateTime?
+  joinedAt       DateTime  @default(now())
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+  @@index([userId, conversationId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String   @db.VarChar(5000)
+  mediaUrl       String?
+  isEdited       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([conversationId, createdAt])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// 8. Groups Domain
+// ============================================================================
+
+model Group {
+  id          String       @id @default(cuid())
+  name        String       @db.VarChar(100)
+  slug        String       @unique
+  description String?      @db.VarChar(1000)
+  avatarUrl   String?
+  bannerUrl   String?
+  privacy     GroupPrivacy  @default(PUBLIC)
+  memberCount Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  members       GroupMember[]
+  posts         Post[]
+  notifications Notification[]
+  events        Event[]
+
+  @@index([slug])
+  @@index([privacy])
+  @@index([memberCount])
+  @@index([createdAt])
+}
+
+model GroupMember {
+  id       String          @id @default(cuid())
+  groupId  String
+  userId   String
+  role     GroupMemberRole  @default(MEMBER)
+  joinedAt DateTime        @default(now())
+
+  // Relations
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@index([groupId, role])
+}
+
+// ============================================================================
+// 9. Stories Domain
+// ============================================================================
+
+model Story {
+  id         String   @id @default(cuid())
+  authorId   String
+  mediaId    String
+  caption    String?  @db.VarChar(500)
+  viewsCount Int      @default(0)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  // Relations
+  author User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media  Media       @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  views  StoryView[]
+
+  @@index([authorId])
+  @@index([mediaId])
+  @@index([expiresAt])
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model StoryView {
+  id       String   @id @default(cuid())
+  storyId  String
+  viewerId String
+  viewedAt DateTime @default(now())
+
+  // Relations
+  story  Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewer User  @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, viewerId])
+  @@index([storyId])
+  @@index([viewerId])
+}
+
+// ============================================================================
+// 10. Blockchain / Wallet Domain
+// ============================================================================
+
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  address      String   @unique
+  balance      Decimal  @default(0) @db.Decimal(18, 8)
+  stakedAmount Decimal  @default(0) @db.Decimal(18, 8)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  stakes       Stake[]
+
+  @@index([userId])
+  @@index([address])
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  walletId    String
+  type        TransactionType
+  amount      Decimal           @db.Decimal(18, 8)
+  description String?
+  txHash      String?           @unique
+  status      TransactionStatus @default(COMPLETED)
+  createdAt   DateTime          @default(now())
+
+  // Relations
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([type])
+  @@index([status])
+  @@index([txHash])
+  @@index([walletId, createdAt])
+  @@index([createdAt])
+}
+
+model Stake {
+  id         String      @id @default(cuid())
+  walletId   String
+  amount     Decimal     @db.Decimal(18, 8)
+  lockPeriod Int
+  apy        Decimal     @db.Decimal(5, 2)
+  startDate  DateTime
+  endDate    DateTime
+  status     StakeStatus @default(ACTIVE)
+  createdAt  DateTime    @default(now())
+
+  // Relations
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([status])
+  @@index([walletId, status])
+  @@index([endDate])
+}
+
+// ============================================================================
+// 11. Events Domain
+// ============================================================================
+
+model Event {
+  id            String    @id @default(cuid())
+  creatorId     String
+  groupId       String?
+  title         String    @db.VarChar(200)
+  description   String?   @db.VarChar(2000)
+  location      String?   @db.VarChar(200)
+  isOnline      Boolean   @default(false)
+  onlineUrl     String?
+  startTime     DateTime
+  endTime       DateTime?
+  bannerUrl     String?
+  attendeeCount Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  creator   User            @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  group     Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  attendees EventAttendee[]
+
+  @@index([creatorId])
+  @@index([groupId])
+  @@index([startTime])
+  @@index([isOnline])
+  @@index([createdAt])
+  @@index([startTime, createdAt])
+}
+
+model EventAttendee {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  status    String   @default("going")
+  createdAt DateTime @default(now())
+
+  // Relations
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+  @@index([eventId, status])
+}
